@@ -74,6 +74,7 @@ then
 	set BOARD_FMUV3 0
 
 	# External I2C bus
+	icm20948 -X start
 	hmc5883 -C -T -X start
 	lis3mdl -X start
 

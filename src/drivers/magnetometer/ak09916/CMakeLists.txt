@@ -1,6 +1,6 @@
 ############################################################################
 #
-#   Copyright (c) 2017 PX4 Development Team. All rights reserved.
+#   Copyright (c) 2015 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -30,10 +30,16 @@
 # POSSIBILITY OF SUCH DAMAGE.
 #
 ############################################################################
-
-add_subdirectory(bmm150)
-add_subdirectory(hmc5883)
-add_subdirectory(icm20948)
-add_subdirectory(ak09916)
-add_subdirectory(ist8310)
-add_subdirectory(lis3mdl)
+px4_add_module(
+	MODULE drivers__ak09916
+	MAIN ak09916
+	STACK_MAIN 1200
+	COMPILE_FLAGS
+	SRCS
+		ak09916_i2c.cpp
+		ak09916.cpp
+		main.cpp
+	DEPENDS
+		platforms__common
+	)
+# vim: set noet ft=cmake fenc=utf-8 ff=unix :
