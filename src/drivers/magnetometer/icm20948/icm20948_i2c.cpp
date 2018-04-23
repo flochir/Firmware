@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2016 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2013-2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file mpu9250_i2c.cpp
+ * @file HMC5883_I2C.cpp
  *
- * I2C interface for MPU9250
+ * I2C interface for HMC5883 / HMC 5983
  */
 
 /* XXX trim includes */
@@ -52,22 +52,24 @@
 #include <arch/board/board.h>
 
 #include <drivers/device/i2c.h>
-#include <drivers/drv_accel.h>
+#include <drivers/drv_mag.h>
 #include <drivers/drv_device.h>
-
-#include "mpu9250.h"
-
 #include "board_config.h"
 
-#ifdef USE_I2C
 
-device::Device *MPU9250_I2C_interface(int bus, int device_type, bool external_bus);
+#include "icm20948.h"
 
-class MPU9250_I2C : public device::I2C
+/* May be either one, defined by pin AD0 on the ICM20948 chip. 0x69 is used on Here! GPS */
+#define ICM20948_I2C_ADDRESS_A      0x68
+#define ICM20948_I2C_ADDRESS_B      0x69
+
+device::Device *ICM20948_I2C_interface(int bus);
+
+class ICM20948_I2C : public device::I2C
 {
 public:
-	MPU9250_I2C(int bus, int device_type);
-	virtual ~MPU9250_I2C();
+    ICM20948_I2C(int bus);
+	virtual ~ICM20948_I2C();
 
 	virtual int	init();
 	virtual int	read(unsigned address, void *data, unsigned count);
@@ -78,55 +80,43 @@ public:
 protected:
 	virtual int	probe();
 
-private:
-	int 		_device_type;
-
 };
 
-
 device::Device *
-MPU9250_I2C_interface(int bus, int device_type, bool external_bus)
+ICM20948_I2C_interface(int bus)
 {
-	return new MPU9250_I2C(bus, device_type);
+	return new ICM20948_I2C(bus);
 }
 
-MPU9250_I2C::MPU9250_I2C(int bus, int device_type) :
-#if !defined(PX4_I2C_OBDEV_MPU9250)
-	I2C("MPU9250_I2C", nullptr, bus, PX4_I2C_EXT_ICM20948_1, 400000),
-#else
-	I2C("MPU9250_I2C", nullptr, bus, (device_type == MPU_DEVICE_TYPE_ICM20948) ? PX4_I2C_EXT_ICM20948_1 : PX4_I2C_OBDEV_MPU9250, 400000),
-#endif
-	_device_type(device_type)
+ICM20948_I2C::ICM20948_I2C(int bus) :
+	I2C("ICM20948_I2C", nullptr, bus, ICM20948_I2C_ADDRESS_B, 400000)
 {
-	_device_id.devid_s.devtype =  DRV_ACC_DEVTYPE_MPU9250;
+	_device_id.devid_s.devtype = DRV_ACC_DEVTYPE_ICM20948;
 }
 
-MPU9250_I2C::~MPU9250_I2C()
+ICM20948_I2C::~ICM20948_I2C()
 {
 }
 
 int
-MPU9250_I2C::init()
+ICM20948_I2C::init()
 {
 	/* this will call probe() */
 	return I2C::init();
 }
 
 int
-MPU9250_I2C::ioctl(unsigned operation, unsigned &arg)
+ICM20948_I2C::ioctl(unsigned operation, unsigned &arg)
 {
 	int ret;
 
 	switch (operation) {
 
-	case ACCELIOCGEXTERNAL:
+	case MAGIOCGEXTERNAL:
 		return external();
 
 	case DEVIOCGDEVICEID:
 		return CDev::ioctl(nullptr, operation, arg);
-
-	case MPUIOCGIS_I2C:
-		return 1;
 
 	default:
 		ret = -EINVAL;
@@ -136,53 +126,45 @@ MPU9250_I2C::ioctl(unsigned operation, unsigned &arg)
 }
 
 int
-MPU9250_I2C::write(unsigned reg_speed, void *data, unsigned count)
+ICM20948_I2C::probe()
 {
-	uint8_t cmd[MPU_MAX_WRITE_BUFFER_SIZE];
+	uint8_t data = 0;
 
-	if (sizeof(cmd) < (count + 1)) {
+	_retries = 10;
+
+	if (read(ADDR_ID_ICM, &data, 1)) {
+		DEVICE_DEBUG("read_reg fail");
 		return -EIO;
 	}
 
-	cmd[0] = MPU9250_REG(reg_speed);
-	cmd[1] = *(uint8_t *)data;
-	return transfer(&cmd[0], count + 1, nullptr, 0);
-}
+	_retries = 2;
 
-int
-MPU9250_I2C::read(unsigned reg_speed, void *data, unsigned count)
-{
-	/* We want to avoid copying the data of MPUReport: So if the caller
-	 * supplies a buffer not MPUReport in size, it is assume to be a reg or
-	 * reg 16 read
-	 * Since MPUReport has a cmd at front, we must return the data
-	 * after that. Foe anthing else we must return it
-	 */
-	uint32_t offset = count < sizeof(MPUReport) ? 0 : offsetof(MPUReport, status);
-	uint8_t cmd = MPU9250_REG(reg_speed);
-	return transfer(&cmd, 1, &((uint8_t *)data)[offset], count);
-}
-
-
-int
-MPU9250_I2C::probe()
-{
-	uint8_t whoami = 0;
-	uint8_t reg_whoami = 0;
-	uint8_t expected = 0;
-
-	switch (_device_type) {
-	case MPU_DEVICE_TYPE_MPU9250:
-		reg_whoami = MPUREG_WHOAMI;
-		expected = MPU_WHOAMI_9250;
-		break;
-	case MPU_DEVICE_TYPE_ICM20948:
-		reg_whoami = ICMREG_20948_WHOAMI;
-		expected = ICM_WHOAMI_20948;
-		break;
+	if ((data != ID_ICM_WHO_AM_I)) {
+		DEVICE_DEBUG("ID byte mismatch (%02x)", data);
+		return -EIO;
 	}
 
-	return (read(reg_whoami, &whoami, 1) == OK && (whoami == expected)) ? 0 : -EIO;
+	return OK;
 }
 
-#endif /* USE_I2C */
+int
+ICM20948_I2C::write(unsigned address, void *data, unsigned count)
+{
+	uint8_t buf[32];
+
+	if (sizeof(buf) < (count + 1)) {
+		return -EIO;
+	}
+
+	buf[0] = address;
+	memcpy(&buf[1], data, count);
+
+	return transfer(&buf[0], count + 1, nullptr, 0);
+}
+
+int
+ICM20948_I2C::read(unsigned address, void *data, unsigned count)
+{
+	uint8_t cmd = address;
+	return transfer(&cmd, 1, (uint8_t *)data, count);
+}

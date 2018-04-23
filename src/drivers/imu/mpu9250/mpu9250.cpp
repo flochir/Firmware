@@ -93,6 +93,7 @@
 
 /* Set accel range used */
 #define ACCEL_RANGE_G  16
+
 /*
   list of registers that will be checked in check_registers(). Note
   that MPUREG_PRODUCT_ID must be first in the list.
@@ -111,14 +112,63 @@ const uint8_t MPU9250::_checked_registers[MPU9250_NUM_CHECKED_REGISTERS] = { MPU
 									   };
 
 
+const uint8_t MPU9250::_icm20948_checked_registers[ICM20948_NUM_CHECKED_REGISTERS] = {
+											ICMREG_20948_USER_CTRL,
+											ICMREG_20948_PWR_MGMT_1,
+											ICMREG_20948_PWR_MGMT_2,
+											ICMREG_20948_INT_PIN_CFG,
+											ICMREG_20948_INT_ENABLE,
+											ICMREG_20948_INT_ENABLE_1,
+											ICMREG_20948_INT_ENABLE_2,
+											ICMREG_20948_INT_ENABLE_3,
+											ICMREG_20948_GYRO_SMPLRT_DIV,
+											ICMREG_20948_GYRO_CONFIG_1,
+											ICMREG_20948_GYRO_CONFIG_2,
+											ICMREG_20948_ACCEL_SMPLRT_DIV_1,
+											ICMREG_20948_ACCEL_SMPLRT_DIV_2,
+											ICMREG_20948_ACCEL_CONFIG,
+											ICMREG_20948_ACCEL_CONFIG_2,
+											ICMREG_20948_BANK_SEL
+									   };
+
+
+/*
+ * Lookup table for registers and memory banks of ICM20948, stored as {addr, bank}.
+ * See BANKED_REG_ID for the named indizes.
+ */
+const struct BankedReg MPU9250::_banked_reg_table[NUM_BANKED_REGISTERS] = {
+											{0x00, 0},		// ICMREG_20948_WHOAMI=0,
+											{0x03, 0},		// ICMREG_20948_USER_CTRL,
+											{0x06, 0},		// ICMREG_20948_PWR_MGMT_1,
+											{0x07, 0},		// ICMREG_20948_PWR_MGMT_2,
+											{0x0F, 0},		// ICMREG_20948_INT_PIN_CFG,
+											{0x10, 0},		// ICMREG_20948_INT_ENABLE,
+											{0x11, 0},		// ICMREG_20948_INT_ENABLE_1,
+											{0x12, 0},		// ICMREG_20948_INT_ENABLE_2,
+											{0x13, 0},		// ICMREG_20948_INT_ENABLE_3,
+											{0x00, 2},		// ICMREG_20948_GYRO_SMPLRT_DIV,
+											{0x01, 2}, 		// ICMREG_20948_GYRO_CONFIG_1,
+											{0x02, 2},		// ICMREG_20948_GYRO_CONFIG_2,
+											{0x10, 2},		// ICMREG_20948_ACCEL_SMPLRT_DIV_1,
+											{0x11, 2},		// ICMREG_20948_ACCEL_SMPLRT_DIV_2,
+											{0x14, 2},		// ICMREG_20948_ACCEL_CONFIG,
+											{0x15, 2},		// ICMREG_20948_ACCEL_CONFIG_2
+											{0x7F, 0}		// ICMREG_20948_BANK_SEL,     --> only here so it can be included in checked write
+										};
+
+
 MPU9250::MPU9250(device::Device *interface, device::Device *mag_interface, const char *path_accel,
 		 const char *path_gyro, const char *path_mag,
-		 enum Rotation rotation) :
+		 enum Rotation rotation,
+		 int device_type) :
 	CDev("MPU9250", path_accel),
 	_interface(interface),
 	_gyro(new MPU9250_gyro(this, path_gyro)),
 	_mag(new MPU9250_mag(this, mag_interface, path_mag)),
 	_whoami(0),
+	_device_type(device_type),
+	_banked_registers( (device_type==MPU_DEVICE_TYPE_ICM20948) ? true : false ),
+	_selected_bank(255),	// invalid/improbable bank value, will be set on first read/write
 #if defined(USE_I2C)
 	_work {},
 	_use_hrt(false),
@@ -995,11 +1045,26 @@ MPU9250::gyro_ioctl(struct file *filp, int cmd, unsigned long arg)
 	}
 }
 
+int
+MPU9250::select_register_bank(uint8_t bank) {
+	if (bank != _selected_bank ) {
+		return _interface->write(MPU9250_SET_SPEED(ICMREG_20948_BANK_SEL, MPU9250_HIGH_BUS_SPEED), &bank, 1);
+	}
+	return PX4_OK;
+}
+
 uint8_t
 MPU9250::read_reg(unsigned reg, uint32_t speed)
 {
 	uint8_t buf;
-	_interface->read(MPU9250_SET_SPEED(reg, speed), &buf, 1);
+	if(_banked_registers) {
+		select_register_bank(_banked_reg_table[reg].bank);
+		_interface->read(MPU9250_SET_SPEED(_banked_reg_table[reg].addr, speed), &buf, 1);
+	}
+	else {
+		_interface->read(MPU9250_SET_SPEED(reg, speed), &buf, 1);
+	}
+
 	return buf;
 }
 
@@ -1010,7 +1075,13 @@ MPU9250::read_reg16(unsigned reg)
 
 	// general register transfer at low clock speed
 
-	_interface->read(MPU9250_LOW_SPEED_OP(reg), &buf, arraySize(buf));
+	if(_banked_registers) {
+		select_register_bank(_banked_reg_table[reg].bank);
+		_interface->read(MPU9250_LOW_SPEED_OP(_banked_reg_table[reg].addr), &buf, arraySize(buf));
+	}
+	else {
+		_interface->read(MPU9250_LOW_SPEED_OP(reg), &buf, arraySize(buf));
+	}
 	return (uint16_t)(buf[0] << 8) | buf[1];
 }
 
@@ -1019,7 +1090,13 @@ MPU9250::write_reg(unsigned reg, uint8_t value)
 {
 	// general register transfer at low clock speed
 
-	_interface->write(MPU9250_LOW_SPEED_OP(reg), &value, 1);
+	if(_banked_registers) {
+		select_register_bank(_banked_reg_table[reg].bank);
+		_interface->write(MPU9250_LOW_SPEED_OP(_banked_reg_table[reg].addr), &value, 1);
+	}
+	else {
+		_interface->write(MPU9250_LOW_SPEED_OP(reg), &value, 1);
+	}
 }
 
 void
@@ -1049,11 +1126,22 @@ MPU9250::write_checked_reg(unsigned reg, uint8_t value)
 {
 	write_reg(reg, value);
 
-	for (uint8_t i = 0; i < MPU9250_NUM_CHECKED_REGISTERS; i++) {
-		if (reg == _checked_registers[i]) {
-			_checked_values[i] = value;
-			_checked_bad[i] = value;
-			break;
+	if(_banked_registers) {  // only ICM20948 uses banked registers right now
+		for (uint8_t i = 0; i < ICM20948_NUM_CHECKED_REGISTERS; i++) {
+			if (reg == _icm20948_checked_registers[i]) {
+				_icm20948_checked_values[i] = value;
+				_icm20948_checked_bad[i] = value;
+				break;
+			}
+		}
+	}
+	else {
+		for (uint8_t i = 0; i < MPU9250_NUM_CHECKED_REGISTERS; i++) {
+			if (reg == _checked_registers[i]) {
+				_checked_values[i] = value;
+				_checked_bad[i] = value;
+				break;
+			}
 		}
 	}
 }
