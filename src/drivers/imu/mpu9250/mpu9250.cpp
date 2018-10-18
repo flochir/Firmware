@@ -137,9 +137,6 @@ MPU9250::MPU9250(device::Device *interface, device::Device *mag_interface, const
 		 bool magnetometer_only) :
 	_interface(interface),
 	_name("MPU9250"),
-	_accel(magnetometer_only ? nullptr : new MPU9250_accel(this, path_accel)),
-	_gyro(magnetometer_only ? nullptr : new MPU9250_gyro(this, path_gyro)),
-	_mag(new MPU9250_mag(this, mag_interface, path_mag)),
 	_whoami(0),
 	_device_type(device_type),
 	_selected_bank(0xFF),	// invalid/improbable bank value, will be set on first read/write
@@ -192,6 +189,14 @@ MPU9250::MPU9250(device::Device *interface, device::Device *mag_interface, const
 	_got_duplicate(false)
 {
 	_debug_enabled = false;
+
+	strcpy(_accelpath, path_accel);
+	strcpy(_gyropath, path_gyro);
+    strcpy(_magpath, path_mag);
+
+    _accel = (magnetometer_only ? nullptr : new MPU9250_accel(this, path_accel));
+    _gyro = (magnetometer_only ? nullptr : new MPU9250_gyro(this, path_gyro));
+    _mag = (new MPU9250_mag(this, mag_interface, path_mag));
 
 	if (_accel != nullptr) {
 		/* Set device parameters and make sure parameters of the bus device are adopted */

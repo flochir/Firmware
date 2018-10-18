@@ -407,6 +407,10 @@ public:
 	// deliberately cause a sensor error
 	void 			test_error();
 
+    char _accelpath[40];
+    char _gyropath[40];
+    char _magpath[40];
+
 protected:
 	device::Device *_interface;
 

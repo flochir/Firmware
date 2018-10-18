@@ -71,50 +71,6 @@
 
 #include "mpu9250.h"
 
-#define MPU_DEVICE_PATH_ACCEL		"/dev/mpu9250_accel"
-#define MPU_DEVICE_PATH_GYRO		"/dev/mpu9250_gyro"
-#define MPU_DEVICE_PATH_MAG		"/dev/mpu9250_mag"
-
-#define MPU_DEVICE_PATH_ACCEL_1		"/dev/mpu9250_accel1"
-#define MPU_DEVICE_PATH_GYRO_1		"/dev/mpu9250_gyro1"
-#define MPU_DEVICE_PATH_MAG_1		"/dev/mpu9250_mag1"
-
-#define MPU_DEVICE_PATH_ACCEL_EXT	"/dev/mpu9250_accel_ext"
-#define MPU_DEVICE_PATH_GYRO_EXT	"/dev/mpu9250_gyro_ext"
-#define MPU_DEVICE_PATH_MAG_EXT 	"/dev/mpu9250_mag_ext"
-
-#define MPU_DEVICE_PATH_ACCEL_EXT1	"/dev/mpu9250_accel_ext1"
-#define MPU_DEVICE_PATH_GYRO_EXT1	"/dev/mpu9250_gyro_ext1"
-#define MPU_DEVICE_PATH_MAG_EXT1 	"/dev/mpu9250_mag_ext1"
-
-#define MPU_DEVICE_PATH_ACCEL_EXT2	"/dev/mpu9250_accel_ext2"
-#define MPU_DEVICE_PATH_GYRO_EXT2	"/dev/mpu9250_gyro_ext2"
-#define MPU_DEVICE_PATH_MAG_EXT2	"/dev/mpu9250_mag_ext2"
-
-#define MPU_DEVICE_PATH_MPU6500_ACCEL       "/dev/mpu6500_accel"
-#define MPU_DEVICE_PATH_MPU6500_GYRO        "/dev/mpu6500_gyro"
-#define MPU_DEVICE_PATH_MPU6500_MAG         "/dev/mpu6500_mag"
-
-#define MPU_DEVICE_PATH_MPU6500_ACCEL_1     "/dev/mpu6500_accel1"
-#define MPU_DEVICE_PATH_MPU6500_GYRO_1      "/dev/mpu6500_gyro1"
-#define MPU_DEVICE_PATH_MPU6500_MAG_1       "/dev/mpu6500_mag1"
-
-#define MPU_DEVICE_PATH_MPU6500_ACCEL_EXT   "/dev/mpu6500_accel_ext"
-#define MPU_DEVICE_PATH_MPU6500_GYRO_EXT    "/dev/mpu6500_gyro_ext"
-#define MPU_DEVICE_PATH_MPU6500_MAG_EXT     "/dev/mpu6500_mag_ext"
-
-#define MPU_DEVICE_PATH_ICM_ACCEL_EXT  "/dev/mpu9250_icm_accel_ext"
-#define MPU_DEVICE_PATH_ICM_GYRO_EXT   "/dev/mpu9250_icm_gyro_ext"
-#define MPU_DEVICE_PATH_ICM_MAG_EXT    "/dev/mpu9250_icm_mag_ext"
-
-#define MPU_DEVICE_PATH_ICM_ACCEL_EXT1	"/dev/mpu9250_icm_accel_ext1"
-#define MPU_DEVICE_PATH_ICM_GYRO_EXT1	"/dev/mpu9250_icm_gyro_ext1"
-#define MPU_DEVICE_PATH_ICM_MAG_EXT1 	"/dev/mpu9250_icm_mag_ext1"
-
-#define MPU_DEVICE_PATH_ICM_ACCEL_EXT2	"/dev/mpu9250_icm_accel_ext2"
-#define MPU_DEVICE_PATH_ICM_GYRO_EXT2	"/dev/mpu9250_icm_gyro_ext2"
-#define MPU_DEVICE_PATH_ICM_MAG_EXT2	"/dev/mpu9250_icm_mag_ext2"
-
 /** driver 'main' command */
 extern "C" { __EXPORT int mpu9250_main(int argc, char *argv[]); }
 
@@ -129,11 +85,38 @@ enum MPU9250_BUS {
 };
 
 
+
+
 /**
  * Local functions in support of the shell command.
  */
 namespace mpu9250
 {
+
+char accelpath_generated[40];
+char gyropath_generated[40];
+char magpath_generated[40];
+
+enum MPU9250_GENIDX_DEVTYPE {
+    MPU9250_GENIDX_DEVTYPE_MPU9250 = 0,
+    MPU9250_GENIDX_DEVTYPE_MPU6500,
+    MPU9250_GENIDX_DEVTYPE_ICM20948
+};
+
+enum MPU9250_GENIDX_BUSTYPE {
+    MPU9250_GENIDX_BUSTYPE_SPI = 0,
+    MPU9250_GENIDX_BUSTYPE_I2C
+};
+
+enum MPU9250_GENIDX_BUSEXT {
+    MPU9250_GENIDX_BUSEXT_INT = 0,
+    MPU9250_GENIDX_BUSEXT_EXT
+};
+
+const char devpath_base[6] = "/dev/";
+const char* const devpath_devtype[] = {"mpu9250_", "mpu6500_", "icm20948_"};
+const char* const devpath_bustype[] = {"spi_", "i2c_"};
+const char* const devpath_busext[] = {"int_", "ext_"};
 
 /*
   list of supported bus configurations
@@ -142,9 +125,6 @@ namespace mpu9250
 struct mpu9250_bus_option {
 	enum MPU9250_BUS busid;
 	MPU_DEVICE_TYPE device_type;
-	const char *accelpath;
-	const char *gyropath;
-	const char *magpath;
 	MPU9250_constructor interface_constructor;
 	bool magpassthrough;
 	uint8_t busnum;
@@ -153,39 +133,42 @@ struct mpu9250_bus_option {
 } bus_options[] = {
 #if defined (USE_I2C)
 #  if defined(PX4_I2C_BUS_ONBOARD) && defined(PX4_I2C_OBDEV_MPU9250)
-	{ MPU9250_BUS_I2C_INTERNAL, MPU_DEVICE_TYPE_MPU9250, MPU_DEVICE_PATH_ACCEL, MPU_DEVICE_PATH_GYRO, MPU_DEVICE_PATH_MAG,  &MPU9250_I2C_interface, false, PX4_I2C_BUS_ONBOARD, PX4_I2C_OBDEV_MPU9250, NULL },
-	{ MPU9250_BUS_I2C_INTERNAL, MPU_DEVICE_TYPE_MPU6500, MPU_DEVICE_PATH_ACCEL, MPU_DEVICE_PATH_GYRO, MPU_DEVICE_PATH_MAG,  &MPU9250_I2C_interface, false, PX4_I2C_BUS_ONBOARD, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_INTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_I2C_interface, false, PX4_I2C_BUS_ONBOARD, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_INTERNAL, MPU_DEVICE_TYPE_MPU6500, &MPU9250_I2C_interface, false, PX4_I2C_BUS_ONBOARD, PX4_I2C_OBDEV_MPU9250, NULL },
 #  endif
 #  if defined(PX4_I2C_BUS_EXPANSION)
 #  if defined(PX4_I2C_OBDEV_MPU9250)
-	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, MPU_DEVICE_PATH_ACCEL_EXT, MPU_DEVICE_PATH_GYRO_EXT, MPU_DEVICE_PATH_MAG_EXT, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_OBDEV_MPU9250, NULL },
-	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU6500, MPU_DEVICE_PATH_ACCEL_EXT, MPU_DEVICE_PATH_GYRO_EXT, MPU_DEVICE_PATH_MAG_EXT, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU6500, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_OBDEV_MPU9250, NULL },
 #  endif
-	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_ICM20948, MPU_DEVICE_PATH_ICM_ACCEL_EXT, MPU_DEVICE_PATH_ICM_GYRO_EXT, MPU_DEVICE_PATH_ICM_MAG_EXT, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_EXT_ICM20948_1, NULL },
+	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_ICM20948, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION, PX4_I2C_EXT_ICM20948_1, NULL },
 #endif
 #  if defined(PX4_I2C_BUS_EXPANSION1) && defined(PX4_I2C_OBDEV_MPU9250)
-	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_PATH_ACCEL_EXT1, MPU_DEVICE_PATH_GYRO_EXT1, MPU_DEVICE_PATH_MAG_EXT1, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION1, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION1, PX4_I2C_OBDEV_MPU9250, NULL },
 #  endif
 #  if defined(PX4_I2C_BUS_EXPANSION2) && defined(PX4_I2C_OBDEV_MPU9250)
-	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_PATH_ACCEL_EXT2, MPU_DEVICE_PATH_GYRO_EXT2, MPU_DEVICE_PATH_MAG_EXT2, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION2, PX4_I2C_OBDEV_MPU9250, NULL },
+	{ MPU9250_BUS_I2C_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_I2C_interface, false, PX4_I2C_BUS_EXPANSION2, PX4_I2C_OBDEV_MPU9250, NULL },
 #  endif
 #endif
 #ifdef PX4_SPIDEV_MPU
-	{ MPU9250_BUS_SPI_INTERNAL, MPU_DEVICE_TYPE_MPU9250, MPU_DEVICE_PATH_ACCEL, MPU_DEVICE_PATH_GYRO, MPU_DEVICE_PATH_MAG, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU, NULL },
-	{ MPU9250_BUS_SPI_INTERNAL, MPU_DEVICE_TYPE_MPU6500, MPU_DEVICE_PATH_MPU6500_ACCEL, MPU_DEVICE_PATH_MPU6500_GYRO, MPU_DEVICE_PATH_MPU6500_MAG, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU, NULL },
+	{ MPU9250_BUS_SPI_INTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU, NULL },
+	{ MPU9250_BUS_SPI_INTERNAL, MPU_DEVICE_TYPE_MPU6500, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU, NULL },
 #endif
 #ifdef PX4_SPIDEV_MPU2
-	{ MPU9250_BUS_SPI_INTERNAL2, MPU_DEVICE_TYPE_MPU9250, MPU_DEVICE_PATH_ACCEL_1, MPU_DEVICE_PATH_GYRO_1, MPU_DEVICE_PATH_MAG_1, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU2, NULL },
-	{ MPU9250_BUS_SPI_INTERNAL2, MPU_DEVICE_TYPE_MPU6500, MPU_DEVICE_PATH_MPU6500_ACCEL_1, MPU_DEVICE_PATH_MPU6500_GYRO_1, MPU_DEVICE_PATH_MPU6500_MAG_1, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU2, NULL },
+	{ MPU9250_BUS_SPI_INTERNAL2, MPU_DEVICE_TYPE_MPU9250, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU2, NULL },
+	{ MPU9250_BUS_SPI_INTERNAL2, MPU_DEVICE_TYPE_MPU6500, &MPU9250_SPI_interface, true, PX4_SPI_BUS_SENSORS, PX4_SPIDEV_MPU2, NULL },
 #endif
 #if defined(PX4_SPI_BUS_EXT) && defined(PX4_SPIDEV_EXT_MPU)
-	{ MPU9250_BUS_SPI_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, MPU_DEVICE_PATH_ACCEL_EXT, MPU_DEVICE_PATH_GYRO_EXT, MPU_DEVICE_PATH_MAG_EXT, &MPU9250_SPI_interface, true, PX4_SPI_BUS_EXT, PX4_SPIDEV_EXT_MPU, NULL },
-	{ MPU9250_BUS_SPI_EXTERNAL, MPU_DEVICE_TYPE_MPU6500, MPU_DEVICE_PATH_MPU6500_ACCEL_EXT, MPU_DEVICE_PATH_MPU6500_GYRO_EXT, MPU_DEVICE_PATH_MPU6500_MAG_EXT, &MPU9250_SPI_interface, true, PX4_SPI_BUS_EXT, PX4_SPIDEV_EXT_MPU, NULL },
+	{ MPU9250_BUS_SPI_EXTERNAL, MPU_DEVICE_TYPE_MPU9250, &MPU9250_SPI_interface, true, PX4_SPI_BUS_EXT, PX4_SPIDEV_EXT_MPU, NULL },
+	{ MPU9250_BUS_SPI_EXTERNAL, MPU_DEVICE_TYPE_MPU6500, &MPU9250_SPI_interface, true, PX4_SPI_BUS_EXT, PX4_SPIDEV_EXT_MPU, NULL },
 #endif
 };
 
 #define NUM_BUS_OPTIONS (sizeof(bus_options)/sizeof(bus_options[0]))
 
+
+int     appendit(char *target, const char *source, uint8_t limit);
+int     generate_path(char *target, uint8_t target_size, const char *base, const char *devtype,const char *bustype, const char *busext, uint8_t busnum, const char* sensor_type);
 
 void	start(enum MPU9250_BUS busid, enum Rotation rotation, bool external_bus, bool magnetometer_only);
 bool	start_bus(struct mpu9250_bus_option &bus, enum Rotation rotation, bool external_bus, bool magnetometer_only);
@@ -197,6 +180,55 @@ void	info(enum MPU9250_BUS busid);
 void	regdump(enum MPU9250_BUS busid);
 void	testerror(enum MPU9250_BUS busid);
 void	usage();
+
+
+int appendit(char *target, const char *source, uint8_t limit) {
+    uint8_t cpcount=0;
+
+    while(cpcount < limit && source[cpcount] != 0) {
+        target[cpcount] = source[cpcount];
+        cpcount++;
+    }
+
+    if(cpcount >= limit && source[cpcount] != 0) {
+        return -1;
+    }
+    else {
+        return cpcount;
+    }
+}
+
+int generate_path(char *target, uint8_t target_size, const char *base, const char *devtype,const char *bustype, const char *busext, uint8_t busnum, const char* sensor_type) {
+    uint8_t next_pos=0;
+    int cpcount=0;
+    int error=0;
+    uint8_t limit=target_size-1; // char length without null terminator
+    char busnum_str[3];
+    const char* partlist[6] = { base, devtype, bustype, busext, busnum_str, sensor_type };
+
+    busnum_str[2]=0;
+    busnum_str[1]='_';
+    if(busnum>9) {
+        return -1;
+    }
+    else {
+        busnum_str[0]=(char)(busnum+48);
+    }
+
+    for (uint8_t i=0; i<6; i++) {
+        cpcount = appendit(&target[next_pos], partlist[i], limit-next_pos);
+        if(cpcount < 0) {
+            error=-1;
+            break;
+        }
+        else {
+            next_pos += cpcount;
+        }
+    }
+    return error;
+}
+
+
 
 /**
  * find a bus structure for a busid
@@ -220,6 +252,14 @@ bool
 start_bus(struct mpu9250_bus_option &bus, enum Rotation rotation, bool external, bool magnetometer_only)
 {
 	int fd = -1;
+
+    uint8_t devtype_idx=0;
+    uint8_t bustype_idx=0;
+    uint8_t busext_idx;
+    uint8_t busnum;
+    const char sensor_type_accel[] = "accel";
+    const char sensor_type_gyro[] = "gyro";
+    const char sensor_type_mag[] = "mag";
 
 	PX4_INFO("Bus probed: %d", bus.busid);
 
@@ -253,7 +293,58 @@ start_bus(struct mpu9250_bus_option &bus, enum Rotation rotation, bool external,
 
 #endif
 
-	bus.dev = new MPU9250(interface, mag_interface, bus.accelpath, bus.gyropath, bus.magpath, rotation, bus.device_type,
+
+    switch(bus.device_type) {
+    case MPU_DEVICE_TYPE_MPU9250:
+        devtype_idx=MPU9250_GENIDX_DEVTYPE_MPU9250;
+        break;
+    case MPU_DEVICE_TYPE_MPU6500:
+        devtype_idx=MPU9250_GENIDX_DEVTYPE_MPU6500;
+        break;
+    case MPU_DEVICE_TYPE_ICM20948:
+        devtype_idx=MPU9250_GENIDX_DEVTYPE_ICM20948;
+        break;
+    default:
+        goto fail;
+    }
+
+    switch(bus.busid) {
+    case MPU9250_BUS_I2C_INTERNAL:
+        bustype_idx=MPU9250_GENIDX_BUSTYPE_I2C;
+        busext_idx=MPU9250_GENIDX_BUSEXT_INT;
+        busnum=1;
+        break;
+    case MPU9250_BUS_I2C_EXTERNAL:
+        bustype_idx=MPU9250_GENIDX_BUSTYPE_I2C;
+        busext_idx=MPU9250_GENIDX_BUSEXT_EXT;
+        busnum=1;
+        break;
+    case MPU9250_BUS_SPI_INTERNAL:
+        bustype_idx=MPU9250_GENIDX_BUSTYPE_SPI;
+        busext_idx=MPU9250_GENIDX_BUSEXT_INT;
+        busnum=1;
+        break;
+    case MPU9250_BUS_SPI_INTERNAL2:
+        bustype_idx=MPU9250_GENIDX_BUSTYPE_SPI;
+        busext_idx=MPU9250_GENIDX_BUSEXT_INT;
+        busnum=2;
+        break;
+    case MPU9250_BUS_SPI_EXTERNAL:
+        bustype_idx=MPU9250_GENIDX_BUSTYPE_SPI;
+        busext_idx=MPU9250_GENIDX_BUSEXT_EXT;
+        busnum=1;
+        break;
+    default:
+        goto fail;
+    }
+
+    generate_path(accelpath_generated, sizeof(accelpath_generated), devpath_base, devpath_devtype[devtype_idx], devpath_bustype[bustype_idx], devpath_busext[busext_idx], busnum, sensor_type_accel);
+    generate_path(gyropath_generated, sizeof(accelpath_generated), devpath_base, devpath_devtype[devtype_idx], devpath_bustype[bustype_idx], devpath_busext[busext_idx], busnum, sensor_type_gyro);
+    generate_path(magpath_generated, sizeof(accelpath_generated), devpath_base, devpath_devtype[devtype_idx], devpath_bustype[bustype_idx], devpath_busext[busext_idx], busnum, sensor_type_mag);
+
+    PX4_WARN("Starting with path %s\n", accelpath_generated);
+
+	bus.dev = new MPU9250(interface, mag_interface, accelpath_generated, gyropath_generated, magpath_generated, rotation, bus.device_type,
 			      magnetometer_only);
 
 	if (bus.dev == nullptr) {
@@ -270,16 +361,20 @@ start_bus(struct mpu9250_bus_option &bus, enum Rotation rotation, bool external,
 		goto fail;
 	}
 
-	/*
+	/*_options[i].busid) {
+        case MPU9250_BUS_I2C_EXTERNAL:
+            bustype_idx=MPU9250_GENIDX_BUSTYPE_I2C;
+            busnum=2;
+            break;
 	 * Set the poll rate to default, starts automatic data collection.
 	 * Doing this through the mag device for the time being - it's always there, even in magnetometer only mode.
 	 * Using accel device for MPU6500.
 	 */
 	if (bus.device_type == MPU_DEVICE_TYPE_MPU6500) {
-		fd = open(bus.accelpath, O_RDONLY);
+		fd = open(accelpath_generated, O_RDONLY);
 
 	} else {
-		fd = open(bus.magpath, O_RDONLY);
+		fd = open(magpath_generated, O_RDONLY);
 	}
 
 	if (fd < 0) {
@@ -318,7 +413,6 @@ fail:
 void
 start(enum MPU9250_BUS busid, enum Rotation rotation, bool external, bool magnetometer_only)
 {
-
 	bool started = false;
 
 	for (unsigned i = 0; i < NUM_BUS_OPTIONS; i++) {
@@ -379,24 +473,24 @@ test(enum MPU9250_BUS busid)
 	ssize_t sz;
 
 	/* get the driver */
-	int fd = open(bus.accelpath, O_RDONLY);
+	int fd = open(bus.dev->_accelpath, O_RDONLY);
 
 	if (fd < 0) {
-		err(1, "%s open failed (try 'm start')", bus.accelpath);
+		err(1, "%s open failed (try 'm start')", bus.dev->_accelpath);
 	}
 
 	/* get the driver */
-	int fd_gyro = open(bus.gyropath, O_RDONLY);
+	int fd_gyro = open(bus.dev->_gyropath, O_RDONLY);
 
 	if (fd_gyro < 0) {
-		err(1, "%s open failed", bus.gyropath);
+		err(1, "%s open failed", bus.dev->_gyropath);
 	}
 
 	/* get the driver */
-	int fd_mag = open(bus.magpath, O_RDONLY);
+	int fd_mag = open(bus.dev->_magpath, O_RDONLY);
 
 	if (fd_mag < 0) {
-		err(1, "%s open failed", bus.magpath);
+		err(1, "%s open failed", bus.dev->_magpath);
 	}
 
 	/* reset to manual polling */
@@ -456,7 +550,7 @@ void
 reset(enum MPU9250_BUS busid)
 {
 	struct mpu9250_bus_option &bus = find_bus(busid);
-	int fd = open(bus.accelpath, O_RDONLY);
+	int fd = open(bus.dev->_accelpath, O_RDONLY);
 
 	if (fd < 0) {
 		err(1, "failed ");
